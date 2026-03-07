@@ -6,12 +6,16 @@ from torch.utils.data import Dataset
 
 class CarvanaDataset(Dataset):
     
-    def __init__(self, image_dir, mask_dir, transform=None):
+    def __init__(self, image_dir, mask_dir, image_list=None, mask_list=None, transform=None):
         self.image_dir = image_dir
         self.mask_dir = mask_dir
         
-        self.image_list = sorted(os.listdir(image_dir))
-        self.mask_list = sorted(os.listdir(mask_dir))
+        if image_list is not None and mask_list is not None:
+            self.image_list=image_list
+            self.mask_list=mask_list
+        else:
+            self.image_list = sorted(os.listdir(image_dir))
+            self.mask_list = sorted(os.listdir(mask_dir))
         self.transform = transform
         assert len(self.image_list) == len(self.mask_list), f"Error: Number of images({len(self.image_list)}) and masks({len(self.mask_list)}) differ."
 

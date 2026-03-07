@@ -1,8 +1,22 @@
+import os
 import albumentations as A
 import torch
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader
 from dataset import CarvanaDataset
+from sklearn.model_selection import train_test_split
+
+IMAGE_DIR = "path/to/images"
+MASK_DIR  = "path/to/masks"
+
+all_images = sorted(os.listdir(IMAGE_DIR)) #이미지 파일명 리스트
+all_masks = sorted(os.listdir(MASK_DIR)) #마스크 파일 명 리스트
+
+train_images, val_images, train__masks, val_masks = train_test_split(
+    all_images, all_masks,
+    test_size=0.2,
+    random_state=42
+)
 
 train_transform = A.Compose(
     [
@@ -18,10 +32,31 @@ train_transform = A.Compose(
     ]
 )
 
+val_transform = A.Compose(
+    [
+        A.Resize(height=256, width=256),
+        A.Normalize(
+            mean=(0.485, 0.456, 0.406), 
+            std=(0.229, 0.224, 0.225),
+            max_pixel_value=255.0,),
+        ToTensorV2(),
+    ]
+)
+
 train_dataset=CarvanaDataset(
-    image_dir="image folder path",
-    mask_dir="mask folder path",
+    image_dir=IMAGE_DIR,
+    mask_dir=MASK_DIR,
+    image_list=train_images,
+    mask_list=train__masks,
     transform=train_transform
+)
+
+val_dataset=CarvanaDataset(
+    image_dir=IMAGE_DIR,
+    mask_dir=MASK_DIR,
+    image_list=val_images,
+    mask_list=val_masks,
+    transform=val_transform
 )
 
 train_loader = DataLoader(
@@ -32,13 +67,10 @@ train_loader = DataLoader(
     pin_memory=True # 데이터를 GPU로 빠르게 전송하기 위한 임시 보관소 사용
 )
 
-'''
-dataset = NumpySegDataset(images_path, masks_path)
-total_len = len(dataset)
-train_len = int(total_len * 0.8)
-val_len = total_len - train_len
-
-train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_len, val_len])
-train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=4, shuffle=True)
-'''
+val_loader= DataLoader(
+    dataset=val_dataset, 
+    batch_size=16, 
+    shuffle=False, 
+    num_workers=4,
+    pin_memory=True
+)
