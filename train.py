@@ -9,6 +9,24 @@ from torch.utils.data import DataLoader
 from dataset import CarvanaDataset
 from sklearn.model_selection import train_test_split
 
+def calculate_metrics(outputs,masks,smooth+1e-6):
+    preds = torch.sigmoid(outputs) #0~1로 변환
+    preds = (preds > 0.5).float() #0, 1 로 이진화
+    
+    #1차원으로 변환
+    preds=preds.view(-1) 
+    masks=masks.view(-1)
+    
+    intersection = (preds * masks).sum()
+    total = preds.sum() + masks.sum()
+    union = total - intersection
+    
+    dice = (2. * intersection + smooth) / (total + smooth) #smooth는 분모 0 방지
+    iou = (intersection + smooth) / (union + smooth)
+    
+    return dice.item(), iou.item()
+    
+    
 IMAGE_DIR = "path/to/images"
 MASK_DIR  = "path/to/masks"
 
@@ -90,7 +108,7 @@ for epoch in range(num_epochs):
     
     #Train 모드
     model.train()
-    train_loss = 0.0
+    train_loss, train_dice, train_iou = 0.0, 0.0, 0.0
     
     for images, masks in train_loader:
         #GPU로 데이터 이동
@@ -104,10 +122,14 @@ for epoch in range(num_epochs):
         optimizer.step() #가중치 업데이트
         
         train_loss += loss.item()
+        with torch.no_grad():
+            dice, iou = calculate_metrics(outputs, masks)
+            train_dice += dice
+            train_iou += iou
         
     #Validation 모드
     model.eval()
-    val_loss = 0.0
+    val_loss, val_dice, val_iou = 0.0, 0.0, 0.0
     
     with torch.no_grad(): #검증 단계에서는 기울기 계산 X
         for images, masks in val_loader:
@@ -117,9 +139,21 @@ for epoch in range(num_epochs):
             outputs = model(images)
             loss = criterion(outputs, masks)
             val_loss += loss.item()
+            dice, iou = calculate_metrics(outputs, masks)
+            val_dice += dice
+            val_iou += iou
             
     #에폭마다 평균 손실 출력
     avg_train_loss = train_loss / len(train_loader)
+    avg_train_dice = train_dice / len(train_loader)
+    avg_train_iou = train_iou / len(train_loader)
+    
     avg_val_loss = val_loss / len(val_loader)
-    print(f"Epoch [{epoch+1}/{num_epochs}] Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+    avg_val_dice = val_dice / len(val_loader)
+    avg_val_iou = val_iou / len(val_loader)
+    
+    print(f"Epoch [{epoch+1}/{num_epochs}]")
+    print(f"  [Train] Loss: {avg_train_loss:.4f} | Dice: {avg_train_dice:.4f} | IoU: {avg_train_iou:.4f}")
+    print(f"  [Valid] Loss: {avg_val_loss:.4f} | Dice: {avg_val_dice:.4f} | IoU: {avg_val_iou:.4f}")
+    print("-" * 50)
     
