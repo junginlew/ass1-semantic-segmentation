@@ -25,7 +25,7 @@ U-Net 아키텍처를 PyTorch로 직접 구현하여 **Carvana Image Masking Cha
 | Validation/Test | `Resize(256×256)` → `Normalize(ImageNet)` → `ToTensorV2` |
 
 - **ImageNet 통계**: mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)
-- Normalize는 이미지에만 적용되며, 마스크는 `(mask > 0).astype(float32)`로 이진화만 수행
+- Normalize는 이미지에만 적용되며, 마스크는 Resize, HorizontalFlip, `(mask > 0).astype(float32)`로 이진화만 수행
 - 검증·추론 시에는 HorizontalFlip 등 데이터 증강 미적용
 
 ---
