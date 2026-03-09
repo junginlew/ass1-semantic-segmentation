@@ -80,6 +80,6 @@ class UNet(nn.Module):
         x = torch.cat([skip1, x], dim=1)
         x = self.up4(x) #64채널
         
-        x = self.final_conv(x) #채널 1개 (이진 분류)
+        x = self.final_conv(x) #채널 1개 , (-inf, +inf) 범위의 logit 출력 
         
         return x
