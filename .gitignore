@@ -1,0 +1,5 @@
+# 데이터 폴더 전체 제외
+data/
+*.pth
+__pycache__/
+*.pyc
