@@ -1,6 +1,7 @@
 # 데이터 폴더 전체 제외
 data/
 *.pth
+*.onnx
 __pycache__/
 *.pyc
 *.png
