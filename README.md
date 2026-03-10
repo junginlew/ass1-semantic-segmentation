@@ -151,7 +151,44 @@ for epoch in range(10):
 
 ---
 
-## 9. 구현 설계 요약
+## 9. ONNX 변환 및 추론 (`export_onnx.py`, `infer_onnx.py`)
+
+### 9.1 ONNX 변환 (`export_onnx.py`)
+
+학습된 `best_unet_model.pth`를 `torch.onnx.export()`를 통해 ONNX 포맷으로 변환한다.
+
+| 옵션 | 값 | 설명 |
+|------|----|------|
+| `opset_version` | 11 | ONNX 연산자 집합 버전 |
+| `export_params` | True | 학습된 가중치를 ONNX 파일에 포함 |
+| `do_constant_folding` | True | 상수 폴딩 최적화 — 컴파일 타임에 고정 연산을 미리 계산하여 추론 속도 향상 |
+| `input_names` | `['input']` | ONNX 그래프 입력 노드 이름 |
+| `output_names` | `['output']` | ONNX 그래프 출력 노드 이름 |
+
+더미 입력 `(1, 3, 256, 256)` 텐서를 넘겨 모델의 입력 규격을 ONNX에 기록한 뒤, `unet_model.onnx`로 저장한다.
+
+### 9.2 ONNXRuntime CUDA 추론 (`infer_onnx.py`)
+
+```
+providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+ort_session = ort.InferenceSession("unet_model.onnx", providers=providers)
+```
+
+CUDA를 우선 백엔드로 지정하여 GPU 가속 추론을 수행한다. CUDA를 사용할 수 없는 환경에서는 자동으로 CPU로 폴백된다.
+
+전처리 파이프라인은 기존 PyTorch 추론과 동일하다(`Resize → Normalize → ToTensorV2`). 단, ONNXRuntime은 NumPy 배열을 입력으로 받으므로 `unsqueeze(0).numpy()`로 변환 후 전달한다.
+
+**이진 마스크 생성**: `sigmoid(x) > 0.5`는 logit `x > 0`과 동치이므로, Sigmoid를 별도로 거치지 않고 `(output_logits > 0)`으로 이진화하여 불필요한 연산을 제거한다.
+
+결과는 `onnx_inference_result.png`로 저장된다.
+
+### 9.3 Netron으로 ONNX 그래프 확인
+
+Netron을 통해 변환된 `unet_model.onnx`의 연산 그래프를 시각적으로 확인한다. 인코더의 DoubleConv 블록, MaxPool, 디코더의 ConvTranspose2d, Skip Connection의 Concat 노드 등 U-Net 전체 구조가 ONNX 그래프로 정상적으로 표현되었는지 검증한다.
+
+---
+
+## 10. 구현 설계 요약
 
 | 구성 요소 | 선택 및 근거 |
 |----------|-------------|
@@ -163,7 +200,7 @@ for epoch in range(10):
 
 ---
 
-## 10. 파일 구조
+## 11. 파일 구조
 
 | 파일 | 역할 |
 |------|------|
@@ -171,3 +208,5 @@ for epoch in range(10):
 | `model.py` | `DoubleConv`, `UNet` 구현 |
 | `train.py` | 데이터 분할, 학습·검증 루프, 지표 계산, 모델 저장 |
 | `visualize.py` | 학습된 모델로 테스트 추론 및 시각화 |
+| `export_onnx.py` | PyTorch 모델을 ONNX 포맷으로 변환 |
+| `infer_onnx.py` | ONNXRuntime(CUDA)으로 추론 및 결과 시각화 |
