@@ -6,7 +6,7 @@ class DoubleConv(nn.Module):  #(Conv2d -> BatchNorm2d -> ReLU) * 2
         super().__init__()
         self.conv=nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1,stride=1),
-            nn.BatchNorm2d(out_channels),
+            nn.BatchNorm2d(out_channels), #평균 0, 표준편차 1 정규분포화
             nn.ReLU(inplace=True),
             
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1,stride=1),
