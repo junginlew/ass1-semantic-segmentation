@@ -4,20 +4,22 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import albumentations as A
+from safetensors.torch import load_file
 from albumentations.pytorch import ToTensorV2
 from model import UNet
 
 TEST_DIR = "./data/test"
-MODEL_PATH = "best_unet_model.pth"
+MODEL_PATH = "best_unet_model.safetensors"
 NUM_IMAGES = 5
 
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = UNet(in_channels=3, out_channels=1).to(device)
-    model.load_state_dict(torch.load(MODEL_PATH, weights_only=True)) #저장된 모델 가중치 불러오기, weights_only=True로 보안 강화
+    
+    state_dict = load_file(MODEL_PATH) 
+    model.load_state_dict(state_dict) #저장된 모델 가중치 불러오기
     model.eval()
     print(f"Loaded pretrained model from '{MODEL_PATH}'")
-    
     test_transform = A.Compose([
         A.Resize(height=256, width=256),
         A.Normalize(

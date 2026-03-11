@@ -6,6 +6,7 @@ import torch.optim as optim
 from model import UNet
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader
+from safetensors.torch import save_file
 from dataset import CarvanaDataset
 from sklearn.model_selection import train_test_split
 
@@ -102,6 +103,8 @@ if __name__ == '__main__':
     model = UNet(in_channels=3, out_channels=1).to(device) #UNet 모델 생성, GPU로 이동
     criterion = nn.BCEWithLogitsLoss() #Sigmoid(0~1로 변환) + BCE 연산
     optimizer = optim.Adam(model.parameters(), lr=1e-4) #모델의 가중치 업데이트, 학습률 0.0001
+    
+    #학습률 수렴을 시각화. 학습률 동적으로 업데이트. lr을 하드코딩이 아니라 함수로 만들어서 학습률이 어느정도 수렴하면 학습률을 낮추는 방식으로 학습률 조절하는 방법도 있음 (예: ReduceLROnPlateau, CosineAnnealingLR 등)
 
     num_epochs = 10
     best_val_iou = 0.0
@@ -161,7 +164,7 @@ if __name__ == '__main__':
         
         if avg_val_iou > best_val_iou:
             best_val_iou = avg_val_iou
-            torch.save(model.state_dict(), "best_unet_model.pth") #모델의 가중치 저장
+            save_file(model.state_dict(), "best_unet_model.safetensors") #모델의 가중치 저장, safetensors는 보안 강화된 모델 저장 형식
             print(f"  Best model saved! (IoU: {best_val_iou:.4f})")
         print("-" * 50)
         

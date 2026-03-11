@@ -105,7 +105,7 @@ $$\text{IoU} = \frac{|P \cap G| + \varepsilon}{|P \cup G| + \varepsilon}$$
 
 - `smooth = 1e-6 (ε)`: 분모가 0이 되는 수치 불안정 방지
 - 예측값은 `sigmoid(output) > 0.5`로 이진화 후 계산
-- **Validation IoU 기준**으로 Best Model 저장 (`best_unet_model.pth`)
+- **Validation IoU 기준**으로 Best Model 저장 (`best_unet_model.safetensors`)
 
 배경이 차량보다 훨씬 많은 불균형 데이터 특성상, 픽셀 단순 정확도보다 영역 중첩 기반의 Dice·IoU가 적합한 지표이다.
 
@@ -136,14 +136,14 @@ for epoch in range(10):
     # 에폭 평균 출력
     # Best Model 저장 (Val IoU 갱신 시)
     if avg_val_iou > best_val_iou:
-        torch.save(model.state_dict(), "best_unet_model.pth")
+        save_file(model.state_dict(), "best_unet_model.safetensors")
 ```
 
 ---
 
 ## 8. 추론 및 시각화 (`visualize.py`)
 
-1. `best_unet_model.pth` 로드 → `model.eval()`
+1. `best_unet_model.safetensors` 로드 → `model.eval()`
 2. 테스트 이미지 상위 5장 로드 → 전처리 (Resize, Normalize)
 3. `unsqueeze(0)` 배치 차원 추가 → GPU 이동
 4. `model(input)` → `sigmoid()` → `> 0.5` 임계화 → NumPy 변환
@@ -155,7 +155,7 @@ for epoch in range(10):
 
 ### 9.1 ONNX 변환 (`export_onnx.py`)
 
-학습된 `best_unet_model.pth`를 `torch.onnx.export()`를 통해 ONNX 포맷으로 변환한다.
+학습된 `best_unet_model.safetensors`를 `torch.onnx.export()`를 통해 ONNX 포맷으로 변환한다.
 
 | 옵션 | 값 | 설명 |
 |------|----|------|

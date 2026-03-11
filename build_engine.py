@@ -45,5 +45,5 @@ def build_engine(onnx_file_path, engine_file_path):
         f.write(serialized_engine)
     print(f"Engine has been built and saved to {engine_file_path}")
     
-    if __name__ == "__main__":
-        build_engine(ONNX_FILE_PATH, ENGINE_FILE_PATH)
+if __name__ == "__main__":
+    build_engine(ONNX_FILE_PATH, ENGINE_FILE_PATH)
