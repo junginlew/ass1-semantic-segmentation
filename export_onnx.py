@@ -3,7 +3,7 @@ from model import UNet
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = UNet(in_channels=3, out_channels=1).to(device)
-model.load_state_dict(torch.load("best_unet_model.pth")) # 학습된 가중치 불러오기
+model.load_state_dict(torch.load("best_unet_model.pth", weights_only=True)) # 학습된 가중치 불러오기 , weights_only=True로 보안 강화
 model.eval() #평가모드로 설정
 
 dummy_input = torch.randn(1, 3, 256, 256, device=device) # randn: 평균 0, 표준편차 1의 가우시안 표준정규분포로 값을 채움

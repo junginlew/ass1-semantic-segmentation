@@ -14,7 +14,7 @@ NUM_IMAGES = 5
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = UNet(in_channels=3, out_channels=1).to(device)
-    model.load_state_dict(torch.load(MODEL_PATH)) #저장된 모델 가중치 불러오기
+    model.load_state_dict(torch.load(MODEL_PATH, weights_only=True)) #저장된 모델 가중치 불러오기, weights_only=True로 보안 강화
     model.eval()
     print(f"Loaded pretrained model from '{MODEL_PATH}'")
     
