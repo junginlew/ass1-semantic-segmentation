@@ -104,7 +104,14 @@ if __name__ == '__main__':
     criterion = nn.BCEWithLogitsLoss() #Sigmoid(0~1로 변환) + BCE 연산
     optimizer = optim.Adam(model.parameters(), lr=1e-4) #모델의 가중치 업데이트, 학습률 0.0001
     
-    #학습률 수렴을 시각화. 학습률 동적으로 업데이트. lr을 하드코딩이 아니라 함수로 만들어서 학습률이 어느정도 수렴하면 학습률을 낮추는 방식으로 학습률 조절하는 방법도 있음 (예: ReduceLROnPlateau, CosineAnnealingLR 등)
+    #학습률 스케줄러 (검증 Loss가 3번의 에폭 동안 안 떨어지면 lr을 절반으로 줄임)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min',      # Loss를 최소화하는 방향
+        factor=0.5,      # 학습률을 감소시킬 비율 (기존 lr * 0.5)
+        patience=3,      # Loss가 개선되지 않아도 참는 에폭 수
+        min_lr=1e-6      # 학습률이 떨어질 수 있는 하한선
+    )
 
     num_epochs = 10
     best_val_iou = 0.0
