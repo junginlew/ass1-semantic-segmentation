@@ -81,13 +81,30 @@ Input: (B, 3, 256, 256)
 |---------------|-----|
 | 입력 해상도 | 256 × 256 |
 | Batch Size | 16 |
-| Optimizer | Adam (lr=1e-4) |
+| Optimizer | Adam (초기 lr=1e-4) |
+| LR Scheduler | ReduceLROnPlateau (factor=0.5, patience=3, min_lr=1e-6) |
 | Loss Function | BCEWithLogitsLoss |
-| Epochs | 10 |
+| Epochs | 30 |
 | num_workers | 4 |
 | pin_memory | True |
 
 **BCEWithLogitsLoss** 선택 이유: Sigmoid + BCE를 log-sum-exp 트릭으로 수치적으로 안정하게 계산하며, 이진 세그멘테이션의 표준 손실 함수이다.
+
+### 학습률 스케줄러 — ReduceLROnPlateau
+
+초기 학습률 `1e-4`에서 시작하여, 검증 Loss의 수렴 여부에 따라 자동으로 감소시킨다.
+
+```python
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer,
+    mode='min',    # Loss를 최소화하는 방향으로 판단
+    factor=0.5,    # 감소 비율: 현재 lr × 0.5
+    patience=3,    # 3 에폭 연속 개선 없으면 감소
+    min_lr=1e-6    # 학습률 하한선
+)
+```
+
+매 에폭 종료 후 `scheduler.step(avg_val_loss)`를 호출하여, 검증 Loss가 3 에폭 동안 개선되지 않으면 학습률을 절반으로 줄인다. 최솟값은 `1e-6`으로 제한하여 학습이 완전히 멈추지 않도록 한다.
 
 ---
 
@@ -114,7 +131,7 @@ $$\text{IoU} = \frac{|P \cap G| + \varepsilon}{|P \cup G| + \varepsilon}$$
 ## 7. 학습 루프
 
 ```
-for epoch in range(10):
+for epoch in range(30):
 
     # Train
     model.train()
@@ -133,15 +150,34 @@ for epoch in range(10):
             outputs = model(images)
             → Loss, Dice, IoU 누적
 
-    # 에폭 평균 출력
+    # 스케줄러 업데이트 (검증 Loss 기준)
+    scheduler.step(avg_val_loss)
+    current_lr = optimizer.param_groups[0]['lr']
+
+    # 에폭 평균 출력 (Train/Val Loss, Dice, IoU, 현재 LR)
     # Best Model 저장 (Val IoU 갱신 시)
     if avg_val_iou > best_val_iou:
         save_file(model.state_dict(), "best_unet_model.safetensors")
+
+# 학습 곡선 시각화 및 저장 → loss_and_lr_curve.png
 ```
 
 ---
 
-## 8. 추론 및 시각화 (`visualize.py`)
+## 8. 학습 곡선 시각화
+
+학습 종료 후 `matplotlib`으로 두 그래프를 그려 `loss_and_lr_curve.png`로 저장한다.
+
+| 서브플롯 | 내용 |
+|---------|------|
+| 좌 (1, 2, 1) | Train Loss / Validation Loss — 에폭별 손실 추이 |
+| 우 (1, 2, 2) | Learning Rate — 로그 스케일(`yscale='log'`)로 감소 시점 시각화 |
+
+학습률 그래프에서 감소 시점을 확인하면 `patience=3` 조건이 실제로 발동된 에폭을 직관적으로 파악할 수 있다.
+
+---
+
+## 9. 추론 및 시각화 (`visualize.py`)
 
 1. `best_unet_model.safetensors` 로드 → `model.eval()`
 2. 테스트 이미지 상위 5장 로드 → 전처리 (Resize, Normalize)
@@ -151,9 +187,9 @@ for epoch in range(10):
 
 ---
 
-## 9. ONNX 변환 및 추론 (`export_onnx.py`, `infer_onnx.py`)
+## 10. ONNX 변환 및 추론 (`export_onnx.py`, `infer_onnx.py`)
 
-### 9.1 ONNX 변환 (`export_onnx.py`)
+### 10.1 ONNX 변환 (`export_onnx.py`)
 
 학습된 `best_unet_model.safetensors`를 `torch.onnx.export()`를 통해 ONNX 포맷으로 변환한다.
 
@@ -167,7 +203,7 @@ for epoch in range(10):
 
 더미 입력 `(1, 3, 256, 256)` 텐서를 넘겨 모델의 입력 규격을 ONNX에 기록한 뒤, `unet_model.onnx`로 저장한다.
 
-### 9.2 ONNXRuntime CUDA 추론 (`infer_onnx.py`)
+### 10.2 ONNXRuntime CUDA 추론 (`infer_onnx.py`)
 
 ```
 providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
@@ -182,13 +218,13 @@ CUDA를 우선 백엔드로 지정하여 GPU 가속 추론을 수행한다. CUDA
 
 결과는 `onnx_inference_result.png`로 저장된다.
 
-### 9.3 Netron으로 ONNX 그래프 확인
+### 10.3 Netron으로 ONNX 그래프 확인
 
 Netron을 통해 변환된 `unet_model.onnx`의 연산 그래프를 시각적으로 확인한다. 인코더의 DoubleConv 블록, MaxPool, 디코더의 ConvTranspose2d, Skip Connection의 Concat 노드 등 U-Net 전체 구조가 ONNX 그래프로 정상적으로 표현되었는지 검증한다.
 
 ---
 
-## 10. 구현 설계 요약
+## 11. 구현 설계 요약
 
 | 구성 요소 | 선택 및 근거 |
 |----------|-------------|
@@ -196,17 +232,18 @@ Netron을 통해 변환된 `unet_model.onnx`의 연산 그래프를 시각적으
 | **손실 함수** | BCEWithLogitsLoss — 이진 분류 표준, 수치 안정성 확보 |
 | **평가 지표** | Dice + IoU — 불균형 데이터에서 영역 기반 지표가 픽셀 정확도보다 적합 |
 | **데이터 증강** | HorizontalFlip — 차량 이미지 특성상 좌우 반전이 자연스러운 증강 |
+| **학습률 스케줄러** | ReduceLROnPlateau — 검증 Loss 수렴 시 자동 감소, 과적합 방지 및 세밀한 수렴 유도 |
 | **모델 저장** | Val IoU 기반 Best Checkpoint — 과적합 방지, 최적 가중치 보존 |
 
 ---
 
-## 11. 파일 구조
+## 12. 파일 구조
 
 | 파일 | 역할 |
 |------|------|
 | `dataset.py` | `CarvanaDataset` — 이미지·마스크 로드, 전처리 적용 |
 | `model.py` | `DoubleConv`, `UNet` 구현 |
-| `train.py` | 데이터 분할, 학습·검증 루프, 지표 계산, 모델 저장 |
+| `train.py` | 데이터 분할, 학습·검증 루프, 스케줄러, 지표 계산, 모델 저장, 학습 곡선 시각화 |
 | `visualize.py` | 학습된 모델로 테스트 추론 및 시각화 |
 | `export_onnx.py` | PyTorch 모델을 ONNX 포맷으로 변환 |
 | `infer_onnx.py` | ONNXRuntime(CUDA)으로 추론 및 결과 시각화 |
