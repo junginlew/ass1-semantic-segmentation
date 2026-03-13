@@ -3,6 +3,7 @@ import albumentations as A
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import matplotlib.pyplot as plt
 from model import UNet
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader
@@ -112,8 +113,12 @@ if __name__ == '__main__':
         patience=3,      # Loss가 개선되지 않아도 참는 에폭 수
         min_lr=1e-6      # 학습률이 떨어질 수 있는 하한선
     )
+    
+    history_train_loss = []
+    history_val_loss = []
+    history_lr = []
 
-    num_epochs = 10
+    num_epochs = 30
     best_val_iou = 0.0
 
     # Training loop
@@ -165,13 +170,49 @@ if __name__ == '__main__':
         avg_val_dice = val_dice / len(val_loader)
         avg_val_iou = val_iou / len(val_loader)
         
+        # 스케줄러 업데이트
+        scheduler.step(avg_val_loss) # 검증 로스를 기준으로 학습률을 조절
+        current_lr = optimizer.param_groups[0]['lr'] # 현재 업데이트된 학습률
+        history_train_loss.append(avg_train_loss)
+        history_val_loss.append(avg_val_loss)
+        history_lr.append(current_lr)
+  
+        
         print(f"Epoch [{epoch+1}/{num_epochs}]")
         print(f"  [Train] Loss: {avg_train_loss:.4f} | Dice: {avg_train_dice:.4f} | IoU: {avg_train_iou:.4f}")
         print(f"  [Valid] Loss: {avg_val_loss:.4f} | Dice: {avg_val_dice:.4f} | IoU: {avg_val_iou:.4f}")
+        print(f"  [ LR  ] Current Learning Rate: {current_lr:.6f}")
         
         if avg_val_iou > best_val_iou:
             best_val_iou = avg_val_iou
             save_file(model.state_dict(), "best_unet_model.safetensors") #모델의 가중치 저장, safetensors는 보안 강화된 모델 저장 형식
             print(f"  Best model saved! (IoU: {best_val_iou:.4f})")
         print("-" * 50)
+        
+    #학습 곡선 시각화
+    plt.figure(figsize=(12, 5))
+
+    # Train, Val Loss
+    plt.subplot(1, 2, 1)
+    plt.plot(history_train_loss, label='Train Loss')
+    plt.plot(history_val_loss, label='Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss')
+    plt.legend()
+    plt.grid(True)
+
+    # Learning Rate Decay
+    plt.subplot(1, 2, 2)
+    plt.plot(history_lr, label='Learning Rate', color='green', marker='o', markersize=4)
+    plt.xlabel('Epoch')
+    plt.ylabel('Learning Rate')
+    plt.title('Learning Rate Convergence')
+    plt.yscale('log')
+    plt.legend()
+    plt.grid(True)
+
+    plt.tight_layout()
+    plt.savefig("loss_and_lr_curve.png")
+    print("Graph saved to 'loss_and_lr_curve.png'.")
         
