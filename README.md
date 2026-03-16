@@ -291,7 +291,23 @@ ONNX 추론과 동일하게 `sigmoid(x) > 0.5`를 `logit > 0`으로 대체하여
 
 PyTorch, ONNXRuntime(CUDA), TensorRT(FP16) 세 방법의 end-to-end 추론 시간을 동일한 조건에서 측정하여 비교한다.
 
-### 13.1 측정 조건
+### 13.1 CUDA 메모리 관리 — `cuda-python` (공식 패키지)
+
+TensorRT 추론의 버퍼 관리에 서드파티 `pycuda` 대신 NVIDIA 공식 `cuda-python` 패키지(`from cuda import cudart`)를 사용한다. `cuda-python`은 NVIDIA가 직접 관리하는 공식 Python 바인딩으로, CUDA C++ API를 1:1로 대응하는 명시적 인터페이스를 제공한다.
+
+| 작업 | pycuda (서드파티) | cudart (NVIDIA 공식) |
+|------|-----------------|---------------------|
+| 스트림 생성 | `cuda.Stream()` | `cudart.cudaStreamCreate()` |
+| 핀 메모리 할당 | `cuda.pagelocked_empty()` | `cudart.cudaMallocHost(size)` |
+| Device 메모리 할당 | `cuda.mem_alloc()` | `cudart.cudaMalloc(size)` |
+| HtoD 전송 | `cuda.memcpy_htod_async()` | `cudart.cudaMemcpyAsync(..., cudaMemcpyHostToDevice, ...)` |
+| DtoH 전송 | `cuda.memcpy_dtoh_async()` | `cudart.cudaMemcpyAsync(..., cudaMemcpyDeviceToHost, ...)` |
+| 스트림 동기화 | `stream.synchronize()` | `cudart.cudaStreamSynchronize(stream)` |
+| 자원 해제 | GC 자동 처리 | `cudaFree` / `cudaFreeHost` / `cudaStreamDestroy` 명시 호출 |
+
+`cudaMallocHost`가 반환하는 원시 포인터는 `ctypes.cast` + `np.frombuffer`로 NumPy 뷰로 변환하여 `np.copyto()`로 데이터를 복사한다. 학습 종료 후 `cudaFree`, `cudaFreeHost`, `cudaStreamDestroy`를 명시적으로 호출하여 메모리 누수를 방지한다.
+
+### 13.2 측정 조건
 
 | 항목 | 값 |
 |------|-----|
@@ -300,7 +316,7 @@ PyTorch, ONNXRuntime(CUDA), TensorRT(FP16) 세 방법의 end-to-end 추론 시�
 | 측정 횟수 | 500 회 |
 | 측정 단위 | 평균 지연시간 (ms), FPS |
 
-### 13.2 공정한 비교를 위한 처리
+### 13.3 공정한 비교를 위한 처리
 
 각 추론 함수에 데이터 전송(HtoD, DtoH)과 결과 회수까지 포함하여 end-to-end 지연시간을 측정한다.
 
@@ -316,13 +332,14 @@ def infer_onnx():
     _ = ort_session.run(None, {input_name: dummy_input_np})   # HtoD + 추론 + DtoH 내부 처리
 
 def infer_tensorrt():
-    cuda.memcpy_htod_async(...)
-    context.execute_async_v3(...)
-    cuda.memcpy_dtoh_async(...)
-    stream.synchronize()
+    np.copyto(inputs[0]['host_array'], dummy_input_np)
+    cudart.cudaMemcpyAsync(..., cudaMemcpyHostToDevice, stream)
+    context.execute_async_v3(stream)
+    cudart.cudaMemcpyAsync(..., cudaMemcpyDeviceToHost, stream)
+    cudart.cudaStreamSynchronize(stream)
 ```
 
-### 13.3 결과 시각화
+### 13.4 결과 시각화
 
 세 방법의 평균 지연시간을 막대 그래프로 비교하여 `benchmark_result.png`로 저장한다 (RTX A6000 기준).
 
@@ -339,6 +356,7 @@ def infer_tensorrt():
 | **학습률 스케줄러** | ReduceLROnPlateau — 검증 Loss 수렴 시 자동 감소, 과적합 방지 및 세밀한 수렴 유도 |
 | **모델 저장** | Val IoU 기반 Best Checkpoint — 과적합 방지, 최적 가중치 보존 |
 | **TensorRT 최적화** | FP16 + 레이어 퓨전 — 동일 GPU에서 PyTorch 대비 추론 속도 향상 |
+| **CUDA 메모리 관리** | NVIDIA 공식 `cuda-python` (`cudart`) — pycuda 서드파티 대신 공식 API로 명시적 메모리 제어 |
 
 ---
 
