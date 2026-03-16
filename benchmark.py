@@ -1,12 +1,12 @@
 import torch
 import onnxruntime as ort
 import tensorrt as trt
-import pycuda.driver as cuda
-import pycuda.autoinit
 import numpy as np
 import time
+import ctypes
 import matplotlib.pyplot as plt
 from safetensors.torch import load_file
+from cuda import cudart
 from model import UNet
 
 BATCH_SIZE = 1
@@ -50,27 +50,48 @@ context = engine.create_execution_context()
 
 # VRAM, 핀 메모리 할당
 inputs, outputs = [], []
-stream = cuda.Stream()
+_, stream = cudart.cudaStreamCreate()
+
 for tensor_name in engine:
     shape = engine.get_tensor_shape(tensor_name)
     dtype= trt.nptype(engine.get_tensor_dtype(tensor_name))
+    size = trt.volume(shape) * np.dtype(dtype).itemsize
     
-    host_mem = cuda.pagelocked_empty(trt.volume(shape), dtype)
-    device_mem = cuda.mem_alloc(host_mem.nbytes)
+    _, host_mem = cudart.cudaMallocHost(size)
+    _, device_mem = cudart.cudaMalloc(size)
+    
+    buffer_type = ctypes.c_byte * size
+    host_buffer = ctypes.cast(host_mem, ctypes.POINTER(buffer_type)).contents
+    host_array = np.frombuffer(host_buffer, dtype=dtype).reshape(shape)
+    
+    
     mode = engine.get_tensor_mode(tensor_name)
-    
     if mode == trt.TensorIOMode.INPUT:
-        inputs.append({'name': tensor_name, 'host': host_mem, 'device': device_mem})       
+        inputs.append({'name': tensor_name, 'host': host_mem, 'device': device_mem, 'host_array': host_array, 'size': size})       
     elif mode == trt.TensorIOMode.OUTPUT:
-        outputs.append({'name': tensor_name, 'host': host_mem, 'device': device_mem})
-    context.set_tensor_address(tensor_name, int(device_mem))
+        outputs.append({'name': tensor_name, 'host': host_mem, 'device': device_mem, 'host_array': host_array, 'size': size})
+    context.set_tensor_address(tensor_name, device_mem)
     
 def infer_tensorrt():
-    np.copyto(inputs[0]['host'], dummy_input_np.ravel())
-    cuda.memcpy_htod_async(inputs[0]['device'], inputs[0]['host'], stream)
-    context.execute_async_v3(stream_handle=stream.handle)
-    cuda.memcpy_dtoh_async(outputs[0]['host'], outputs[0]['device'], stream)
-    stream.synchronize()
+    np.copyto(inputs[0]['host_array'], dummy_input_np)
+    # Host -> Device 전송 (공식 비동기 API)
+    cudart.cudaMemcpyAsync(
+        inputs[0]['device'], 
+        inputs[0]['host'], 
+        inputs[0]['size'], 
+        cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, 
+        stream
+    )
+    context.execute_async_v3(stream)
+    # Device -> Host 전송 (공식 비동기 API)
+    cudart.cudaMemcpyAsync(
+        outputs[0]['host'], 
+        outputs[0]['device'], 
+        outputs[0]['size'], 
+        cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, 
+        stream
+    )
+    cudart.cudaStreamSynchronize(stream)
 
 #벤치마킹 실행, 시간 측정
 def run_benchmark(target_func, name):
@@ -95,6 +116,15 @@ time_pt = run_benchmark(infer_pytorch, "PyTorch (FP32)")
 time_ort = run_benchmark(infer_onnx, "ONNXRuntime (CUDA)")
 time_trt = run_benchmark(infer_tensorrt, "TensorRT (FP16)")
 print("-" * 50)
+
+# 메모리 누수 방지를 위한 자원 해제 (C/C++ 스타일)
+for inp in inputs:
+    cudart.cudaFree(inp['device'])
+    cudart.cudaFreeHost(inp['host'])
+for out in outputs:
+    cudart.cudaFree(out['device'])
+    cudart.cudaFreeHost(out['host'])
+cudart.cudaStreamDestroy(stream)
 
 labels = ['PyTorch', 'ONNXRuntime', 'TensorRT (FP16)']
 times = [time_pt, time_ort, time_trt]
